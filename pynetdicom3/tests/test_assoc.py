@@ -2147,20 +2147,7 @@ class TestAssociationSendNSet(unittest.TestCase):
         assoc.release()
         self.assertFalse(assoc.is_established)
         with self.assertRaises(RuntimeError):
-            assoc.send_n_set()
-        self.scp.stop()
-
-    def test_not_implemented(self):
-        """Test can't send without association."""
-        # Test raise if assoc not established
-        self.scp = DummyVerificationSCP()
-        self.scp.start()
-        ae = AE(scu_sop_class=[VerificationSOPClass])
-        assoc = ae.associate('localhost', 11112)
-        self.assertTrue(assoc.is_established)
-        with self.assertRaises(NotImplementedError):
-            assoc.send_n_set()
-        assoc.release()
+            assoc.send_n_set(None, None, None)
         self.scp.stop()
 
 
@@ -2235,20 +2222,7 @@ class TestAssociationSendNCreate(unittest.TestCase):
         assoc.release()
         self.assertFalse(assoc.is_established)
         with self.assertRaises(RuntimeError):
-            assoc.send_n_create()
-        self.scp.stop()
-
-    def test_not_implemented(self):
-        """Test can't send without association."""
-        # Test raise if assoc not established
-        self.scp = DummyVerificationSCP()
-        self.scp.start()
-        ae = AE(scu_sop_class=[VerificationSOPClass])
-        assoc = ae.associate('localhost', 11112)
-        self.assertTrue(assoc.is_established)
-        with self.assertRaises(NotImplementedError):
-            assoc.send_n_create()
-        assoc.release()
+            assoc.send_n_create(None, None, None)
         self.scp.stop()
 
 

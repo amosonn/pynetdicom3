@@ -14,7 +14,7 @@ from pydicom.uid import UID
 from pynetdicom3.acse import ACSEServiceProvider
 from pynetdicom3.dimse import DIMSEServiceProvider
 from pynetdicom3.dimse_primitives import (C_ECHO, C_MOVE, C_STORE, C_GET,
-                                          C_FIND, C_CANCEL)
+                                          C_FIND, C_CANCEL, N_CREATE, N_SET)
 from pynetdicom3.dsutils import decode, encode
 from pynetdicom3.dul import DULServiceProvider
 from pynetdicom3.sop_class import (
@@ -28,7 +28,8 @@ from pynetdicom3.sop_class import (
     PatientStudyOnlyQueryRetrieveInformationModelMove,
     PatientRootQueryRetrieveInformationModelGet,
     StudyRootQueryRetrieveInformationModelGet,
-    PatientStudyOnlyQueryRetrieveInformationModelGet)
+    PatientStudyOnlyQueryRetrieveInformationModelGet,
+    NCreateSetServiceClass)
 from pynetdicom3.pdu_primitives import (UserIdentityNegotiation,
                                         SOPClassExtendedNegotiation,
                                         SOPClassCommonExtendedNegotiation,
@@ -1855,14 +1856,98 @@ class Association(threading.Thread):
                                "request.")
         raise NotImplementedError
 
-    def send_n_set(self):
+    def _send_n_dimse(self, command, dataset, sop_class, sop_instance_uid, msg_id=1):
+        """Send a C-FIND request to the peer AE.
+
+        See PS3.4 Annex C - Query/Retrieve Service Class
+
+        Parameters
+        ----------
+        command :  string
+            The DICOM command to send - N-CREATE, N-SET
+        dataset : pydicom.Dataset
+            The DICOM dataset to containing the Key Attributes the peer AE
+            should perform the match against.
+        sop_class : the class under which we want to send this message.
+        msg_id : int, optional
+            The message ID.
+
+        Returns
+        -------
+        status : pynetdicom3.sop_class.Status
+            The resulting status(es) from the appropriate sop_class.
+        """
+        # Can't send commands without an Association
+        if not self.is_established:
+            raise RuntimeError("The association with a peer SCP must be "
+                               "established before sending a {} request"
+                               .format(command))
+
+        # Determine the Presentation Context we are operating under
+        #   and hence the transfer syntax to use for encoding `dataset`
+        transfer_syntax = None
+        for context in self.acse.context_manager.accepted:
+            if sop_class.UID == context.AbstractSyntax:
+                transfer_syntax = context.TransferSyntax[0]
+                context_id = context.ID
+
+        if transfer_syntax is None:
+            LOGGER.error("No Presentation Context for: '%s'",
+                         sop_class.UID)
+            LOGGER.error("%s SCU failed due to there being no valid "
+                         "presentation context for the current dataset",
+                         command)
+            raise ValueError("No accepted Presentation Context for "
+                             "'Verification SOP Class'.")
+
+        encoded_ds = BytesIO(encode(dataset,
+                                  transfer_syntax.is_implicit_VR,
+                                  transfer_syntax.is_little_endian))
+
+        # Build appropriate request primitive
+        if command == "N-CREATE":
+            primitive = N_CREATE()
+            primitive.AffectedSOPClassUID = sop_class.UID
+            primitive.AffectedSOPInstanceUID = sop_instance_uid
+            primitive.AttributeList = encoded_ds
+        elif command == "N-SET":
+            primitive = N_SET()
+            primitive.RequestedSOPClassUID = sop_class.UID
+            primitive.RequestedSOPInstanceUID = sop_instance_uid
+            primitive.ModificationList = encoded_ds
+        else:
+            raise NotImplementedError("Currently only N-CREATE/SET supported.")
+        primitive.MessageID = msg_id
+
+        LOGGER.info('%s SCU Request Identifiers:', command)
+        LOGGER.info('')
+        LOGGER.info('# DICOM Dataset')
+        for elem in dataset:
+            LOGGER.info(elem)
+        LOGGER.info('')
+
+        # Send request
+        self.dimse.send_msg(primitive, context_id)
+
+        rsp, _ = self.dimse.receive_msg(wait=True)
+
+        if rsp is None:
+            LOGGER.error('DIMSE service timed out')
+            self.abort()
+        elif rsp.is_valid_response:
+            return rsp
+        else:
+            LOGGER.error('Received an invalid C-STORE response from the peer')
+            self.abort()
+
+    def send_n_set(self, dataset, sop_class, sop_instance_uid, msg_id=1):
         """Send an N-SET request message to the peer AE."""
         # Can't send an N-SET without an Association
         if not self.is_established:
             raise RuntimeError("The association with a peer SCP must be "
                                "established before sending an N-SET "
                                "request.")
-        raise NotImplementedError
+        return self._send_n_dimse("N-SET", dataset, sop_class, sop_instance_uid, msg_id)
 
     def send_n_action(self):
         """Send an N-ACTION request message to the peer AE."""
@@ -1873,14 +1958,14 @@ class Association(threading.Thread):
                                "request.")
         raise NotImplementedError
 
-    def send_n_create(self):
+    def send_n_create(self, dataset, sop_class, sop_instance_uid, msg_id=1):
         """Send an N-CREATE request message to the peer AE."""
         # Can't send an N-CREATE without an Association
         if not self.is_established:
             raise RuntimeError("The association with a peer SCP must be "
                                "established before sending an N-CREATE "
                                "request.")
-        raise NotImplementedError
+        return self._send_n_dimse("N-CREATE", dataset, sop_class, sop_instance_uid, msg_id)
 
     def send_n_delete(self):
         """Send an N-DELETE request message to the peer AE."""
