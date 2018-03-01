@@ -147,7 +147,13 @@ class Association(threading.Thread):
                 if key not in peer_ae:
                     raise KeyError("peer_ae must contain 'AET', 'Port' and "
                                    "'Address' entries")
-        elif peer_ae is not None:
+        elif peer_ae is None:
+            address, port = client_socket.getpeername()
+            peer_ae = {
+                "Port": port,
+                "Address": address,
+            }
+        else:
             raise TypeError("peer_ae must be a dict")
 
         # The socket.socket used for connections
@@ -168,7 +174,8 @@ class Association(threading.Thread):
                                       dul_timeout=self.ae.network_timeout,
                                       assoc=self)
 
-        # Dict containing the peer AE title, address and port
+        # Dict containing the peer AE title, address and port, or
+        # only address and port in case of SCP (AET will be filled later)
         self.peer_ae = peer_ae
 
         # Lists of pynetdicom3.utils.PresentationContext items that the local
@@ -380,6 +387,9 @@ class Association(threading.Thread):
             self.ae.on_association_rejected(assoc_rj)
             self.kill()
             return
+
+        # Fill in the AET of our peer
+        self.peer_ae["AET"] = assoc_rq.calling_ae_title
 
         ## Presentation Contexts
         self.acse.context_manager = PresentationContextManager()
