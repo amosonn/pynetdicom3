@@ -249,7 +249,10 @@ class Association(threading.Thread):
     def release(self):
         """Release the association."""
         if self.is_established:
-            _ = self.acse.release_assoc()
+            try:
+                _ = self.acse.release_assoc()
+            except:
+                pass
             self.kill()
             self.is_released = True
 

@@ -237,6 +237,16 @@ class DULServiceProvider(Thread):
             time.sleep(self._run_loop_delay)
 
             if self._kill_thread:
+                if self.scu_socket:
+                    try:
+                        self.scu_socket.close()
+                    except socket.error:
+                        pass
+                if self.scp_socket:
+                    try:
+                        self.scp_socket.close()
+                    except socket.error:
+                        pass
                 break
 
             # Check the connection for incoming data

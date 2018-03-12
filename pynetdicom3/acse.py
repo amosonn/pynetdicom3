@@ -317,7 +317,7 @@ class ACSEServiceProvider(object):
         primitive = A_RELEASE()
         self.dul.send_pdu(primitive)
 
-        return self.dul.receive_pdu(wait=True)
+        return self.dul.receive_pdu(wait=True, timeout=self.acse_timeout)
 
     def abort_assoc(self, source=0x02, reason=0x00):
         """Abort the Association with the peer Application Entity.

@@ -64,11 +64,13 @@ class DummyBaseSCP(threading.Thread):
         """Abort any associations"""
         for assoc in self.ae.active_associations:
             assoc.abort()
+        self.stop()
 
     def release(self):
         """Release any associations"""
         for assoc in self.ae.active_associations:
             assoc.release()
+        self.stop()
 
     def on_c_echo(self):
         """Callback for ae.on_c_echo"""

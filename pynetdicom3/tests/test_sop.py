@@ -596,6 +596,7 @@ class TestQRFindServiceClass(unittest.TestCase):
         self.scp.start()
 
         ae = AE(scu_sop_class=[PatientRootQueryRetrieveInformationModelFind])
+        ae.dimse_timeout = 3
         assoc = ae.associate('localhost', 11112)
         self.assertTrue(assoc.is_established)
         result = assoc.send_c_find(self.query, query_model='P')

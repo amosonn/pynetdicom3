@@ -27,6 +27,8 @@ from pynetdicom3.timer import Timer
 
 LOGGER = logging.getLogger('pynetdicom3.dimse')
 
+class DIMSETimeout(Exception):
+    pass
 
 class DIMSEServiceProvider(object):
     """The DIMSE service provider.
@@ -281,7 +283,10 @@ class DIMSEServiceProvider(object):
                 #   peeked at, the DIMSE timeout in receive_pdu() doesn't
                 #   actually do anything.
                 if timeout.is_expired:
-                    return None, None
+                    #import pdb
+                    #pdb.set_trace()
+                    #return None, None
+                    raise DIMSETimeout()
 
                 # Race condition: sometimes the DUL will be killed before the
                 #   loop exits

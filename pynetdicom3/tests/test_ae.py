@@ -374,6 +374,8 @@ class TestAEGoodAssociation(unittest.TestCase):
         self.assertTrue(self.scp.ae.active_associations[0].dimse_timeout == 0)
         self.assertTrue(assoc.acse_timeout == 0)
         self.assertTrue(assoc.dimse_timeout == 0)
+        #import pdb
+        #pdb.set_trace()
         assoc.release()
 
         self.scp.ae.acse_timeout = 21
