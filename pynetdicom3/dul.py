@@ -69,7 +69,6 @@ class DULServiceProvider(Thread):
         Thread.__init__(self)
 
         # Current primitive and PDU
-        self.primitive = None
         self.pdu = None
 
         # These queues provide communication between the DUL service
@@ -190,14 +189,14 @@ class DULServiceProvider(Thread):
         # Check the connection for incoming data
         try:
             # If local AE is SCU also calls _check_incoming_pdu()
-            event = self._is_transport_event()
+            event, primitive = self._is_transport_event()
             if event:
                 if self._idle_timer is not None:
                     self._idle_timer.restart()
             else:
-                event = self._check_incoming_primitive()
+                event, primitive = self._check_incoming_primitive()
                 if not event:
-                    event = self._is_artim_expired()
+                    event, primitive = self._is_artim_expired()
                     if event:
                         self._kill_thread = True
                         return False
@@ -212,13 +211,23 @@ class DULServiceProvider(Thread):
             return True
 
         try:
-            self.state_machine.do_action(event)
+            self.state_machine.do_action(event, primitive)
         except:
             # TODO: remove this crutch
             self._kill_thread = True
             raise
-        else:
-            return True
+
+        # In case of opening a connection, we need to resend the primitive
+        if self.scu_socket and event == 'Evt1' and \
+            self.state_machine.current_state == 'Sta4':
+            try:
+                self.state_machine.do_action('Evt2', primitive)
+            except:
+                # TODO: remove this crutch
+                self._kill_thread = True
+                raise
+
+        return True
 
     def run(self):
         """
@@ -283,14 +292,14 @@ class DULServiceProvider(Thread):
             self.scu_socket.close()
             self.scu_socket = None
             LOGGER.error('DUL: Error reading data from the socket')
-            return 'Evt17'
+            return 'Evt17', None
 
         # Remote port has been closed
         if bytestream == bytes():
             self.scu_socket.close()
             self.scu_socket = None
             LOGGER.error('Peer has closed transport connection')
-            return 'Evt17'
+            return 'Evt17', None
 
         # Incoming data is OK
         else:
@@ -311,7 +320,7 @@ class DULServiceProvider(Thread):
             # Unrecognised PDU type - Evt19 in the State Machine
             if pdu_type not in [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]:
                 LOGGER.error("Unrecognised PDU type: 0x%02x", pdu_type)
-                return 'Evt19'
+                return 'Evt19', None
 
             # Byte 2 is Reserved
             result = self._recvn(self.scu_socket, 1)
@@ -334,20 +343,20 @@ class DULServiceProvider(Thread):
 
             # Convert the incoming PDU to a corresponding ServiceParameters
             #   object
-            self.primitive = self.pdu.ToParams()
+            primitive = self.pdu.ToParams()
 
             # Put the event corresponding to the incoming PDU on the queue
-            return self._pdu_to_event(self.pdu)
+            return self._pdu_to_event(self.pdu), primitive
 
     def _check_incoming_primitive(self):
         """Check the incoming primitive."""
         try:
             # Check the queue and see if there are any primitives
             # If so then put the corresponding event on the event queue
-            self.primitive = self.to_provider_queue.get(False)
-            return self._primitive_to_event(self.primitive)
+            primitive = self.to_provider_queue.get(False)
+            return self._primitive_to_event(primitive), primitive
         except queue.Empty:
-            return
+            return None, None
 
     def _is_artim_expired(self):
         """Return if the state machine's ARTIM timer has expired.
@@ -361,7 +370,8 @@ class DULServiceProvider(Thread):
         """
         if self.artim_timer.is_expired:
             #LOGGER.debug('%s: timer expired' % (self.name))
-            return 'Evt18'
+            return 'Evt18', None
+        return None, None
 
     def _is_transport_event(self):
         """Check to see if the transport connection has incoming data
@@ -375,7 +385,7 @@ class DULServiceProvider(Thread):
         if self.state_machine.current_state == 'Sta13':
             # If we have no connection to the SCU
             if self.scu_socket is None:
-                return
+                return None, None
 
             # If we are still connected to the SCU
             try:
@@ -385,7 +395,7 @@ class DULServiceProvider(Thread):
                 while self.scu_socket.recv(1) != b'':
                     continue
             except socket.error:
-                return
+                return None, None
 
             # Once we have no more incoming data close the socket and
             #   add the corresponding event to the queue
@@ -393,18 +403,12 @@ class DULServiceProvider(Thread):
             self.scu_socket = None
 
             # Issue the Transport connection closed indication (AR-5 -> Sta1)
-            return 'Evt17'
+            return 'Evt17', None
 
         # If the local AE is an SCP, listen for incoming data
         # The local AE is in Sta1, i.e. listening for Transport Connection
         #   Indications
         if self.scu_socket:
-            # If we are awaiting transport connection opening to complete
-            #   (from local transport service) then issue the corresponding
-            #   indication (Sta4 + Evt2 -> AE-2 -> Sta5)
-            if self.state_machine.current_state == 'Sta4':
-                return 'Evt2'
-
             # By this point the connection should be established
             #   If theres incoming data on the connection then check the PDU
             #   type
@@ -413,13 +417,15 @@ class DULServiceProvider(Thread):
             try:
                 read_list, _, _ = select.select([self.scu_socket], [], [], 0)
             except (socket.error, ValueError):
-                return
+                return None, None
 
             if read_list:
                 return self._check_incoming_pdu()
 
+            return None, None
+
         else:
-            return
+            return None, None
 
     @staticmethod
     def _pdu_to_event(pdu):

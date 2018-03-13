@@ -36,13 +36,15 @@ class StateMachine(object):
         self.current_state = 'Sta1'
         self.dul = dul
 
-    def do_action(self, event):
+    def do_action(self, event, primitive):
         """Execute the action triggered by `event`.
 
         Parameters
         ----------
         event : str
             The event to be processed, 'Evt1' to 'Evt19'
+        primitive : PDU or None
+            The PDU associated with the event, if any.
         """
         # Check (event + state) is valid
         if (event, self.current_state) not in TRANSITION_TABLE:
@@ -63,7 +65,7 @@ class StateMachine(object):
         #   next state
         try:
             # Execute the required action
-            next_state = action[1](self.dul)
+            next_state = action[1](self.dul, primitive)
 
             #print(action_name, self.current_state, event, next_state)
 
@@ -97,7 +99,7 @@ class StateMachine(object):
             raise ValueError('Invalid state "%s" for State Machine', state)
 
 
-def AE_1(dul):
+def AE_1(dul, primitive):
     """Association establishment action AE-1.
 
     From Idle state, local AE issues a connection request to a remote. This
@@ -126,7 +128,7 @@ def AE_1(dul):
     try:
         # CalledPresentationAddress is set by the ACSE and
         #   is an (address, port) tuple
-        dul.scu_socket.connect(dul.primitive.called_presentation_address)
+        dul.scu_socket.connect(primitive.called_presentation_address)
     except socket.error:
         # Failed to connect
         LOGGER.error("Association Request Failed: Failed to establish "
@@ -138,7 +140,7 @@ def AE_1(dul):
 
     return 'Sta4'
 
-def AE_2(dul):
+def AE_2(dul, primitive):
     """Association establishment action AE-2.
 
     On receiving connection confirmation, send A-ASSOCIATE-RQ to the peer AE
@@ -163,7 +165,7 @@ def AE_2(dul):
     """
     # Send A-ASSOCIATE-RQ PDU
     dul.pdu = A_ASSOCIATE_RQ()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_associate_rq(dul.pdu)
@@ -173,7 +175,7 @@ def AE_2(dul):
 
     return 'Sta5'
 
-def AE_3(dul):
+def AE_3(dul, primitive):
     """Association establishment action AE-3.
 
     On receiving A-ASSOCIATE-AC, issue acceptance confirmation
@@ -194,11 +196,11 @@ def AE_3(dul):
         Sta6, the next state of the state machine
     """
     # Issue A-ASSOCIATE confirmation (accept) primitive
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta6'
 
-def AE_4(dul):
+def AE_4(dul, primitive):
     """Association establishment action AE-4.
 
     On receiving A-ASSOCIATE-RJ, issue rejection confirmation and close
@@ -221,13 +223,13 @@ def AE_4(dul):
     """
     # Issue A-ASSOCIATE confirmation (reject) primitive and close transport
     # connection
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
     dul.scu_socket.close()
     dul.peer_socket = None
 
     return 'Sta1'
 
-def AE_5(dul):
+def AE_5(dul, primitive):
     """Association establishment action AE-5.
 
     From Idle state, on receiving a remote connection attempt, respond and
@@ -257,7 +259,7 @@ def AE_5(dul):
 
     return 'Sta2'
 
-def AE_6(dul):
+def AE_6(dul, primitive):
     """Association establishment action AE-6.
 
     On receiving an A-ASSOCIATE-RQ PDU from the peer then stop the ARTIM timer
@@ -294,13 +296,13 @@ def AE_6(dul):
                      dul.pdu.protocol_version)
 
         # Send A-ASSOCIATE-RJ PDU and start ARTIM timer
-        # dul.primitive is A_ASSOCIATE
-        dul.primitive.result = 0x01
-        dul.primitive.result_source = 0x02
-        dul.primitive.diagnostic = 0x02
+        # primitive is A_ASSOCIATE
+        primitive.result = 0x01
+        primitive.result_source = 0x02
+        primitive.diagnostic = 0x02
 
         dul.pdu = A_ASSOCIATE_RJ()
-        dul.pdu.FromParams(dul.primitive)
+        dul.pdu.FromParams(primitive)
 
         # Callback
         dul.assoc.acse.debug_send_associate_rj(dul.pdu)
@@ -313,11 +315,11 @@ def AE_6(dul):
 
     # If A-ASSOCIATE-RQ acceptable by service dul provider
     #   issue A-ASSOCIATE indication primitive and move to Sta3
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta3'
 
-def AE_7(dul):
+def AE_7(dul, primitive):
     """Association establishment action AE-7.
 
     On receiving association request acceptance, issue A-ASSOCIATE-AC
@@ -339,7 +341,7 @@ def AE_7(dul):
     """
     # Send A-ASSOCIATE-AC PDU
     dul.pdu = A_ASSOCIATE_AC()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_associate_ac(dul.pdu)
@@ -349,7 +351,7 @@ def AE_7(dul):
 
     return 'Sta6'
 
-def AE_8(dul):
+def AE_8(dul, primitive):
     """Association establishment action AE-8.
 
     On receiving association request rejection, issue A-ASSOCIATE-RJ
@@ -371,7 +373,7 @@ def AE_8(dul):
     """
     # Send A-ASSOCIATE-RJ PDU and start ARTIM timer
     dul.pdu = A_ASSOCIATE_RJ()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_associate_rj(dul.pdu)
@@ -383,7 +385,7 @@ def AE_8(dul):
     return 'Sta13'
 
 
-def DT_1(dul):
+def DT_1(dul, primitive):
     """Data transfer DT-1.
 
     On receiving a P-DATA request, send P-DATA-TF
@@ -405,8 +407,8 @@ def DT_1(dul):
     """
     # Send P-DATA-TF PDU
     dul.pdu = P_DATA_TF()
-    dul.pdu.FromParams(dul.primitive)
-    dul.primitive = None # Why this?
+    dul.pdu.FromParams(primitive)
+    primitive = None # Why this?
 
     # Callback
     dul.assoc.acse.debug_send_data_tf(dul.pdu)
@@ -416,7 +418,7 @@ def DT_1(dul):
 
     return 'Sta6'
 
-def DT_2(dul):
+def DT_2(dul, primitive):
     """Data transfer DT-2.
 
     On receiving a P-DATA-TF request, send P-DATA indication
@@ -437,12 +439,12 @@ def DT_2(dul):
         Sta6, the next state of the state machine
     """
     # Send P-DATA indication primitive to DUL
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta6'
 
 
-def AR_1(dul):
+def AR_1(dul, primitive):
     """Association release AR-1.
 
     Send Association release request
@@ -464,7 +466,7 @@ def AR_1(dul):
     """
     # Send A-RELEASE-RQ PDU
     dul.pdu = A_RELEASE_RQ()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_release_rq(dul.pdu)
@@ -474,7 +476,7 @@ def AR_1(dul):
 
     return 'Sta7'
 
-def AR_2(dul):
+def AR_2(dul, primitive):
     """Association release AR-2.
 
     On receiving an association release request, send release indication
@@ -495,11 +497,11 @@ def AR_2(dul):
         Sta8, the next state of the state machine
     """
     # Send A-RELEASE indication primitive
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta8'
 
-def AR_3(dul):
+def AR_3(dul, primitive):
     """Association release AR-3.
 
     On receiving an association release response, send release confirmation,
@@ -521,13 +523,13 @@ def AR_3(dul):
         Sta1, the next state of the state machine
     """
     # Issue A-RELEASE confirmation primitive and close transport connection
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
     dul.scu_socket.close()
     dul.peer_socket = None
 
     return 'Sta1'
 
-def AR_4(dul):
+def AR_4(dul, primitive):
     """Association release AR-4.
 
     On receiving an association release response, send release response
@@ -549,7 +551,7 @@ def AR_4(dul):
     """
     # Issue A-RELEASE-RP PDU and start ARTIM timer
     dul.pdu = A_RELEASE_RP()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_release_rp(dul.pdu)
@@ -559,7 +561,7 @@ def AR_4(dul):
 
     return 'Sta13'
 
-def AR_5(dul):
+def AR_5(dul, primitive):
     """Association release AR-5.
 
     On receiving transport connection closed, stop the ARTIM timer and go back
@@ -585,7 +587,7 @@ def AR_5(dul):
 
     return 'Sta1'
 
-def AR_6(dul):
+def AR_6(dul, primitive):
     """Association release AR-6.
 
     On receiving P-DATA-TF during attempted association release request
@@ -607,11 +609,11 @@ def AR_6(dul):
         Sta7, the next state of the state machine
     """
     # Issue P-DATA indication
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta7'
 
-def AR_7(dul):
+def AR_7(dul, primitive):
     """Association release AR-7.
 
     On receiving P-DATA request during attempted association release request
@@ -634,7 +636,7 @@ def AR_7(dul):
     """
     # Issue P-DATA-TF PDU
     dul.pdu = P_DATA_TF()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_data_tf(dul.pdu)
@@ -644,7 +646,7 @@ def AR_7(dul):
 
     return 'Sta8'
 
-def AR_8(dul):
+def AR_8(dul, primitive):
     """Association release AR-8.
 
     On receiving association release request while local is requesting release
@@ -666,13 +668,13 @@ def AR_8(dul):
         Either Sta9 or Sta10, the next state of the state machine
     """
     # Issue A-RELEASE indication (release collision)
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
     if dul.requestor == 1:
         return 'Sta9'
 
     return 'Sta10'
 
-def AR_9(dul):
+def AR_9(dul, primitive):
     """Association release AR-9.
 
     On receiving A-RELEASE primitive, send release response
@@ -694,7 +696,7 @@ def AR_9(dul):
     """
     # Send A-RELEASE-RP PDU
     dul.pdu = A_RELEASE_RP()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_release_rp(dul.pdu)
@@ -703,7 +705,7 @@ def AR_9(dul):
 
     return 'Sta11'
 
-def AR_10(dul):
+def AR_10(dul, primitive):
     """Association release AR-10.
 
     On receiving A-RELEASE-RP, issue release confirmation
@@ -724,12 +726,12 @@ def AR_10(dul):
         Sta12, the next state of the state machine
     """
     # Issue A-RELEASE confirmation primitive
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
 
     return 'Sta12'
 
 
-def AA_1(dul):
+def AA_1(dul, primitive):
     """Association abort AA-1.
 
     If on sending A-ASSOCIATE-RQ we receive an invalid reply, or an abort
@@ -765,7 +767,7 @@ def AA_1(dul):
         # Reason not specified
         dul.pdu.reason_diagnostic = 0x00
 
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_abort(dul.pdu)
@@ -775,7 +777,7 @@ def AA_1(dul):
 
     return 'Sta13'
 
-def AA_2(dul):
+def AA_2(dul, primitive):
     """Association abort AA-2.
 
     On receiving an A-ABORT or if the ARTIM timer expires, close connection and
@@ -803,7 +805,7 @@ def AA_2(dul):
 
     return 'Sta1'
 
-def AA_3(dul):
+def AA_3(dul, primitive):
     """Association abort AA-3.
 
     On receiving A-ABORT, issue abort indication, close connection and
@@ -830,14 +832,14 @@ def AA_3(dul):
     # Otherwise (service-dul initiated abort):
     #   - Issue A-P-ABORT indication and close transport connection.
     # This action is triggered by the reception of an A-ABORT PDU
-    dul.to_user_queue.put(dul.primitive)
+    dul.to_user_queue.put(primitive)
     dul.scu_socket.close()
     dul.peer_socket = None
     dul.kill_dul()
 
     return 'Sta1'
 
-def AA_4(dul):
+def AA_4(dul, primitive):
     """Association abort AA-4.
 
     If connection closed, issue A-P-ABORT and return to Idle
@@ -859,12 +861,12 @@ def AA_4(dul):
         Sta1, the next state of the state machine
     """
     # Issue A-P-ABORT indication primitive.
-    dul.primitive = A_ABORT()
-    dul.to_user_queue.put(dul.primitive)
+    primitive = A_ABORT()
+    dul.to_user_queue.put(primitive)
 
     return 'Sta1'
 
-def AA_5(dul):
+def AA_5(dul, primitive):
     """Association abort AA-5.
 
     If connection closed during association request, stop ARTIM timer and return
@@ -890,7 +892,7 @@ def AA_5(dul):
 
     return 'Sta1'
 
-def AA_6(dul):
+def AA_6(dul, primitive):
     """Association abort AA-6.
 
     If receive a PDU while waiting for connection to close, ignore it
@@ -911,11 +913,11 @@ def AA_6(dul):
         Sta13, the next state of the state machine
     """
     # Ignore PDU
-    dul.primitive = None
+    primitive = None
 
     return 'Sta13'
 
-def AA_7(dul):
+def AA_7(dul, primitive):
     """Association abort AA-7.
 
     If receive a association request or invalid PDU while waiting for connection
@@ -938,7 +940,7 @@ def AA_7(dul):
     """
     # Send A-ABORT PDU.
     dul.pdu = A_ABORT_RQ()
-    dul.pdu.FromParams(dul.primitive)
+    dul.pdu.FromParams(primitive)
 
     # Callback
     dul.assoc.acse.debug_send_abort(dul.pdu)
@@ -947,7 +949,7 @@ def AA_7(dul):
 
     return 'Sta13'
 
-def AA_8(dul):
+def AA_8(dul, primitive):
     """Association abort AA-8.
 
     If receive invalid event, send A-ABORT, issue A-P-ABORT indication and start
@@ -977,10 +979,10 @@ def AA_8(dul):
     dul.pdu.source = 0x02
     dul.pdu.reason_diagnostic = 0x00
 
-    dul.primitive = dul.pdu.ToParams()
-    dul.primitive.abort_source = 0x02
-    dul.primitive.result = 0x01
-    dul.primitive.diagnostic = 0x01
+    primitive = dul.pdu.ToParams()
+    primitive.abort_source = 0x02
+    primitive.result = 0x01
+    primitive.diagnostic = 0x01
 
     if dul.scu_socket:
         # Callback
@@ -995,7 +997,7 @@ def AA_8(dul):
             dul.scu_socket.close()
 
         # Issue A-P-ABORT to user
-        dul.to_user_queue.put(dul.primitive)
+        dul.to_user_queue.put(primitive)
         dul.artim_timer.start()
 
     return 'Sta13'
