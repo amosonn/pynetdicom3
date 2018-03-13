@@ -44,8 +44,6 @@ class DULServiceProvider(Thread):
         provider
     dul_to_user_queue : queue.Queue
         Queue of primitives from the DUL service to be processed by the DUL user
-    event_queue : queue.Queue
-        List of queued events to be processed by the state machine
     scu_socket : socket.socket()
         If the local AE is acting as an SCU, this is the connection from the
         local AE to the peer AE SCP
@@ -74,10 +72,6 @@ class DULServiceProvider(Thread):
         self.primitive = None
         self.pdu = None
 
-        # The event_queue tracks the events the DUL state machine needs to
-        #   process
-        self.event_queue = queue.Queue()
-
         # These queues provide communication between the DUL service
         #   user and the DUL service provider.
         # An event occurs when the DUL service user adds to
@@ -101,8 +95,7 @@ class DULServiceProvider(Thread):
         if socket:
             # A client socket has been given, so the local AE is acting as
             #   an SCP
-            # generate an event 5
-            self.event_queue.put('Evt5')
+            # Evt5 will be generated in the main event loop.
             self.scu_socket = socket
             self.peer_address = None
         else:
@@ -197,26 +190,25 @@ class DULServiceProvider(Thread):
         # Check the connection for incoming data
         try:
             # If local AE is SCU also calls _check_incoming_pdu()
-            if self._is_transport_event() and self._idle_timer is not None:
-                self._idle_timer.restart()
-            elif self._check_incoming_primitive():
-                pass
-
-            elif self._is_artim_expired():
-                self._kill_thread = True
-                return False
-                # TODO: Exception
+            event = self._is_transport_event()
+            if event:
+                if self._idle_timer is not None:
+                    self._idle_timer.restart()
+            else:
+                event = self._check_incoming_primitive()
+                if not event:
+                    event = self._is_artim_expired()
+                    if event:
+                        self._kill_thread = True
+                        return False
+                        # TODO: Exception
 
         except:
             # FIXME: This catch all should be removed
             self._kill_thread = True
             raise
 
-        # Check the event queue to see if there is anything to do
-        try:
-            event = self.event_queue.get(False)
-        # If the queue is empty, return to the start of the loop
-        except queue.Empty:
+        if not event:
             return True
 
         try:
@@ -238,6 +230,10 @@ class DULServiceProvider(Thread):
             be nice.
         """
         # Main DUL loop
+        if self.scu_socket:
+            # We are running as SCP,
+            # generate an event 5
+            self.state_machine.do_action('Evt5', None)
         while self.single_step():
             # This effectively controls how often the DUL checks the network
             time.sleep(self._run_loop_delay)
@@ -284,19 +280,17 @@ class DULServiceProvider(Thread):
             # Get the data from the socket
             bytestream = self.scu_socket.recv(1)
         except socket.error:
-            self.event_queue.put('Evt17')
             self.scu_socket.close()
             self.scu_socket = None
             LOGGER.error('DUL: Error reading data from the socket')
-            return
+            return 'Evt17'
 
         # Remote port has been closed
         if bytestream == bytes():
-            self.event_queue.put('Evt17')
             self.scu_socket.close()
             self.scu_socket = None
             LOGGER.error('Peer has closed transport connection')
-            return
+            return 'Evt17'
 
         # Incoming data is OK
         else:
@@ -317,8 +311,7 @@ class DULServiceProvider(Thread):
             # Unrecognised PDU type - Evt19 in the State Machine
             if pdu_type not in [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]:
                 LOGGER.error("Unrecognised PDU type: 0x%02x", pdu_type)
-                self.event_queue.put('Evt19')
-                return
+                return 'Evt19'
 
             # Byte 2 is Reserved
             result = self._recvn(self.scu_socket, 1)
@@ -339,12 +332,12 @@ class DULServiceProvider(Thread):
             # the raw bytestream to the corresponding PDU class
             self.pdu = self._socket_to_pdu(bytestream)
 
-            # Put the event corresponding to the incoming PDU on the queue
-            self.event_queue.put(self._pdu_to_event(self.pdu))
-
             # Convert the incoming PDU to a corresponding ServiceParameters
             #   object
             self.primitive = self.pdu.ToParams()
+
+            # Put the event corresponding to the incoming PDU on the queue
+            return self._pdu_to_event(self.pdu)
 
     def _check_incoming_primitive(self):
         """Check the incoming primitive."""
@@ -352,10 +345,9 @@ class DULServiceProvider(Thread):
             # Check the queue and see if there are any primitives
             # If so then put the corresponding event on the event queue
             self.primitive = self.to_provider_queue.get(False)
-            self.event_queue.put(self._primitive_to_event(self.primitive))
-            return True
+            return self._primitive_to_event(self.primitive)
         except queue.Empty:
-            return False
+            return
 
     def _is_artim_expired(self):
         """Return if the state machine's ARTIM timer has expired.
@@ -369,10 +361,7 @@ class DULServiceProvider(Thread):
         """
         if self.artim_timer.is_expired:
             #LOGGER.debug('%s: timer expired' % (self.name))
-            self.event_queue.put('Evt18')
-            return True
-
-        return False
+            return 'Evt18'
 
     def _is_transport_event(self):
         """Check to see if the transport connection has incoming data
@@ -386,7 +375,7 @@ class DULServiceProvider(Thread):
         if self.state_machine.current_state == 'Sta13':
             # If we have no connection to the SCU
             if self.scu_socket is None:
-                return False
+                return
 
             # If we are still connected to the SCU
             try:
@@ -396,7 +385,7 @@ class DULServiceProvider(Thread):
                 while self.scu_socket.recv(1) != b'':
                     continue
             except socket.error:
-                return False
+                return
 
             # Once we have no more incoming data close the socket and
             #   add the corresponding event to the queue
@@ -404,8 +393,7 @@ class DULServiceProvider(Thread):
             self.scu_socket = None
 
             # Issue the Transport connection closed indication (AR-5 -> Sta1)
-            self.event_queue.put('Evt17')
-            return True
+            return 'Evt17'
 
         # If the local AE is an SCP, listen for incoming data
         # The local AE is in Sta1, i.e. listening for Transport Connection
@@ -415,8 +403,7 @@ class DULServiceProvider(Thread):
             #   (from local transport service) then issue the corresponding
             #   indication (Sta4 + Evt2 -> AE-2 -> Sta5)
             if self.state_machine.current_state == 'Sta4':
-                self.event_queue.put('Evt2')
-                return True
+                return 'Evt2'
 
             # By this point the connection should be established
             #   If theres incoming data on the connection then check the PDU
@@ -426,14 +413,13 @@ class DULServiceProvider(Thread):
             try:
                 read_list, _, _ = select.select([self.scu_socket], [], [], 0)
             except (socket.error, ValueError):
-                return False
+                return
 
             if read_list:
-                self._check_incoming_pdu()
-                return True
+                return self._check_incoming_pdu()
 
         else:
-            return False
+            return
 
     @staticmethod
     def _pdu_to_event(pdu):
