@@ -184,6 +184,50 @@ class DULServiceProvider(Thread):
         except queue.Empty:
             return None
 
+    def single_step(self):
+        """
+        A single iteration of the main loop.
+        """
+        if self._kill_thread:
+            return False
+
+        if self._idle_timer is not None:
+            self._idle_timer.start()
+
+        # Check the connection for incoming data
+        try:
+            # If local AE is SCU also calls _check_incoming_pdu()
+            if self._is_transport_event() and self._idle_timer is not None:
+                self._idle_timer.restart()
+            elif self._check_incoming_primitive():
+                pass
+
+            elif self._is_artim_expired():
+                self._kill_thread = True
+                return False
+                # TODO: Exception
+
+        except:
+            # FIXME: This catch all should be removed
+            self._kill_thread = True
+            raise
+
+        # Check the event queue to see if there is anything to do
+        try:
+            event = self.event_queue.get(False)
+        # If the queue is empty, return to the start of the loop
+        except queue.Empty:
+            return True
+
+        try:
+            self.state_machine.do_action(event)
+        except:
+            # TODO: remove this crutch
+            self._kill_thread = True
+            raise
+        else:
+            return True
+
     def run(self):
         """
         The main threading.Thread run loop. Runs constantly, checking the
@@ -194,40 +238,9 @@ class DULServiceProvider(Thread):
             be nice.
         """
         # Main DUL loop
-        while True:
-            if self._idle_timer is not None:
-                self._idle_timer.start()
-
+        while self.single_step():
             # This effectively controls how often the DUL checks the network
             time.sleep(self._run_loop_delay)
-
-            if self._kill_thread:
-                break
-
-            # Check the connection for incoming data
-            try:
-                # If local AE is SCU also calls _check_incoming_pdu()
-                if self._is_transport_event() and self._idle_timer is not None:
-                    self._idle_timer.restart()
-                elif self._check_incoming_primitive():
-                    pass
-
-                elif self._is_artim_expired():
-                    self._kill_thread = True
-
-            except:
-                # FIXME: This catch all should be removed
-                self._kill_thread = True
-                raise
-
-            # Check the event queue to see if there is anything to do
-            try:
-                event = self.event_queue.get(False)
-            # If the queue is empty, return to the start of the loop
-            except queue.Empty:
-                continue
-
-            self.state_machine.do_action(event)
 
     def send_pdu(self, params):
         """

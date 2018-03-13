@@ -74,7 +74,6 @@ class StateMachine(object):
             LOGGER.error("DUL State Machine received an exception attempting "
                          "to perform the action '%s' while in state '%s'",
                          action_name, self.current_state)
-            self.dul.kill_dul()
             raise ex
 
     def transition(self, state):
