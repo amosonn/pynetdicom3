@@ -137,6 +137,8 @@ def AE_1(dul, primitive):
         LOGGER.error("TCP Initialisation Error: Connection refused")
         dul.to_user_queue.put(None)
         dul.scu_socket.close()
+        # TODO: raise the exception instead
+        return 'Sta1'
 
     return 'Sta4'
 
