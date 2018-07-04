@@ -1669,6 +1669,11 @@ class N_SET(object):
         [-, M] The error or success notification of the operation. It shall be
         one of the following values:
         FIXME: Add the status values
+    ErrorComment : str or None
+        [-, C] An optional status related field containing a text description
+        of the error detected. 64 characters maximum.
+    ErrorID : int or None
+        ? Optional, error code.
 
     **10.1.3.1.9 Status**
 
@@ -1702,6 +1707,11 @@ class N_SET(object):
         self.AffectedSOPClassUID = None
         self.AffectedSOPInstanceUID = None
         self.Status = None
+        
+        # Optional Command Set elements used with specific Status values
+        # For Failure status 0x0110
+        self.ErrorComment = None
+        self.ErrorID = None
 
     @property
     def is_valid_request(self):
@@ -1842,6 +1852,11 @@ class N_CREATE(object):
         [-, M] The error or success notification of the operation. It shall be
         one of the following values:
         FIXME: Add the status values
+    ErrorComment : str or None
+        [-, C] An optional status related field containing a text description
+        of the error detected. 64 characters maximum.
+    ErrorID : int or None
+        ? Optional, error code.
 
     **10.1.5.1.6 Status**
 
@@ -1873,6 +1888,11 @@ class N_CREATE(object):
         self.AffectedSOPInstanceUID = None
         self.AttributeList = None
         self.Status = None
+        
+        # Optional Command Set elements used with specific Status values
+        # For Failure status 0x0110
+        self.ErrorComment = None
+        self.ErrorID = None
 
     @property
     def is_valid_request(self):

@@ -1941,14 +1941,21 @@ class Association(threading.Thread):
 
         rsp, _ = self.dimse.receive_msg(wait=True)
 
+        # Determine validity of the response and get the status
+        status = Dataset()
         if rsp is None:
             LOGGER.error('DIMSE service timed out')
             self.abort()
         elif rsp.is_valid_response:
-            return rsp
+            status.Status = rsp.Status
+            for keyword in ['ErrorComment', 'ErrorID']:
+                if getattr(rsp, keyword) is not None:
+                    setattr(status, keyword, getattr(rsp, keyword))
         else:
             LOGGER.error('Received an invalid C-STORE response from the peer')
             self.abort()
+
+        return status
 
     def send_n_set(self, dataset, sop_class, sop_instance_uid, msg_id=1):
         """Send an N-SET request message to the peer AE."""
