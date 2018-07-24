@@ -773,6 +773,7 @@ def AA_1(dul):
     dul.assoc.acse.debug_send_abort(dul.pdu)
 
     dul.scu_socket.send(dul.pdu.Encode())
+    dul.scu_socket.close()
     dul.artim_timer.restart()
 
     return 'Sta13'

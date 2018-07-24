@@ -418,11 +418,11 @@ class DULServiceProvider(Thread):
                 while self.scu_socket.recv(1) != b'':
                     continue
             except socket.error:
-                return False
+                pass
+            else:
+                # Once we have no more incoming data close the socket
+                self.scu_socket.close()
 
-            # Once we have no more incoming data close the socket and
-            #   add the corresponding event to the queue
-            self.scu_socket.close()
             self.scu_socket = None
 
             # Issue the Transport connection closed indication (AR-5 -> Sta1)
