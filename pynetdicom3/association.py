@@ -415,9 +415,17 @@ class Association(threading.Thread):
         #        user_item.maximum_length_received = self.local_max_pdu
 
         # Issue the A-ASSOCIATE indication (accept) primitive using the ACSE
-        # FIXME: Is this correct? Do we send Accept then Abort if no
-        #   presentation contexts?
-        assoc_ac = self.acse.accept_assoc(assoc_rq)
+        # if there are accepted presentation contexts, (reject) otherwise.
+        if self.acse.accepted_contexts:
+            assoc_ac = self.acse.accept_assoc(assoc_rq)
+        else:
+            # Permanent, Service User, No Reason
+            result, src, diag = 0x01, 0x01, 0x01
+            assoc_rj = self.acse.reject_assoc(assoc_rq, result, src, diag)
+            self.debug_association_rejected(assoc_rj)
+            self.ae.on_association_rejected(assoc_rj)
+            self.kill()
+            return
 
         if assoc_ac is None:
             #self.abort()

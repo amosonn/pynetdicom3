@@ -479,7 +479,7 @@ class TestAssociation(unittest.TestCase):
         scp.start()
         ae = AE(scu_sop_class=[CTImageStorage])
         assoc = ae.associate('localhost', 11112)
-        self.assertTrue(assoc.is_aborted)
+        self.assertTrue(assoc.is_rejected)
         self.assertFalse(assoc.is_established)
         #self.assertRaises(SystemExit, ae.quit)
         scp.stop()
