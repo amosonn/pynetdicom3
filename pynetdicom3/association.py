@@ -522,6 +522,7 @@ class Association(threading.Thread):
 
             # Check for release request
             if self.acse.CheckRelease():
+                self.is_released = True
                 # Callback trigger
                 self.debug_association_released()
                 self.ae.on_association_released()
@@ -529,6 +530,7 @@ class Association(threading.Thread):
 
             # Check for abort
             if self.acse.CheckAbort():
+                self.is_aborted = True
                 # Callback trigger
                 self.debug_association_aborted()
                 self.ae.on_association_aborted(None)
